@@ -2,10 +2,9 @@
 version = "0.1.0"
 name = "fibonacci-script"
 edition = "2021"
-default-run = "fibonacci"
 
 [[bin]]
-name = "fibonacci"
+name = "server"
 path = "src/bin/main.rs"
 
 [[bin]]
@@ -29,6 +28,8 @@ dotenv = "0.15.0"
 chrono = "=0.4.38"
 anyhow = "1.0.40" 
 ethers-core = { version = "2.0.14"}
+actix-web = "4.4.0"
+actix-cors = "0.6.4"
 
 [build-dependencies]
 sp1-build = "4.0.0"

@@ -1,14 +1,22 @@
 mod structs;
+use actix_cors::Cors;
+use actix_web::{web, App, HttpResponse, HttpServer, Result};
 use clap::Parser;
-use serde::{Deserialize, Serialize};
-use sp1_sdk::{include_elf, utils, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
-use ethers_core::types::{H160, Signature, H256};
 use ethers_core::abi::Token;
 use ethers_core::types::transaction::eip712::EIP712Domain;
+use ethers_core::types::{Signature, H160, H256};
 use ethers_core::utils::keccak256;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sp1_sdk::{
+    include_elf, utils, ProverClient, SP1Stdin,SP1ProofWithPublicValues,HashableKey
+};
+use sp1_sdk::{network::FulfillmentStrategy, Prover};
 use std::fs;
-use structs::{Attest, InputData};
 use std::path::Path;
+use std::time::Duration;
+use structs::{Attest, InputData};
+use dotenv::dotenv;
 
 /// ELF file for the Succinct RISC-V zkVM.
 pub const ADDRESS_ELF: &[u8] = include_elf!("fibonacci-program");
@@ -26,10 +34,36 @@ struct ProofData {
 #[derive(Parser)]
 #[command(name = "zkVM Proof Generator")]
 struct Cli {
-    #[arg(long, default_value_t = false, help = "Generate or use pregenerated proof")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Generate or use pregenerated proof"
+    )]
     prove: bool,
-    #[arg(long, default_value = "plonk", help = "Proof mode (e.g., groth16, plonk)")]
+    #[arg(
+        long,
+        default_value = "plonk",
+        help = "Proof mode (e.g., groth16, plonk)"
+    )]
     mode: String,
+}
+
+async fn save_input(json: web::Json<Value>) -> Result<HttpResponse> {
+    // Create directory if it doesn't exist
+    let dir_path = Path::new("src/bin");
+    if !dir_path.exists() {
+        fs::create_dir_all(dir_path).map_err(|e| {
+            actix_web::error::ErrorInternalServerError(format!("Failed to create directory: {}", e))
+        })?;
+    }
+
+    // Save the JSON to input.json
+    let file_path = dir_path.join("input.json");
+    fs::write(&file_path, serde_json::to_string_pretty(&json.0).unwrap()).map_err(|e| {
+        actix_web::error::ErrorInternalServerError(format!("Failed to write file: {}", e))
+    })?;
+
+    Ok(HttpResponse::Ok().json(json.0))
 }
 
 fn parse_input_data(file_path: &str) -> InputData {
@@ -52,13 +86,18 @@ fn create_domain_separator(input_data: &InputData) -> H256 {
     let domain = ethers_core::types::transaction::eip712::EIP712Domain {
         name: Some(input_data.sig.domain.name.clone()),
         version: Some(input_data.sig.domain.version.clone()),
-        chain_id: Some(ethers_core::types::U256::from_dec_str(&input_data.sig.domain.chain_id).unwrap()),
+        chain_id: Some(
+            ethers_core::types::U256::from_dec_str(&input_data.sig.domain.chain_id).unwrap(),
+        ),
         verifying_contract: Some(input_data.sig.domain.verifying_contract.parse().unwrap()),
         salt: None,
     };
     domain_separator(
         &domain,
-        ethers_core::utils::keccak256(b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)").into(),
+        ethers_core::utils::keccak256(
+            b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
+        )
+        .into(),
     )
 }
 
@@ -84,7 +123,7 @@ fn parse_signature(input_data: &InputData) -> Signature {
     }
 }
 
-fn main() {
+async fn generate_proof(mode: String) -> Result<HttpResponse> {
     // Create necessary directories if they don't exist
     let proof_dir = Path::new("proofs");
     if !proof_dir.exists() {
@@ -92,8 +131,7 @@ fn main() {
     }
 
     utils::setup_logger();
-    let args = Cli::parse();   
-    let input_data = parse_input_data("/home/gautam/Desktop/AirProof/zk-backend/script/src/bin/input.json");
+    let input_data = parse_input_data("src/bin/input.json");
 
     let signer_address: H160 = input_data.signer.parse().unwrap();
     let message = build_message(&input_data);
@@ -103,34 +141,66 @@ fn main() {
     let mut stdin = SP1Stdin::new();
     stdin.write(&signer_address);
     stdin.write(&signature);
-    stdin.write(&(THRESHOLD_AGE));  // threshold age in seconds
+    stdin.write(&(THRESHOLD_AGE));
     stdin.write(&(chrono::Utc::now().timestamp() as u64));
     stdin.write(&message);
     stdin.write(&domain_separator);
 
-    let client = ProverClient::from_env();
+    let client = ProverClient::builder()
+        .network()
+        .private_key("0xfe513d8088442654ae6db6a23998f698100e34d43c9d6c105743590de0ae1e88")
+        .rpc_url("https://rpc.production.succinct.xyz")
+        .build();
     let (pk, vk) = client.setup(ADDRESS_ELF);
-    let proof_path = format!("../binaries/DOB-Attestaion_{}_proof.bin", args.mode);
-    let json_path = format!("../json/DOB-Attestaion_{}_proof.json", args.mode);
 
-    if args.prove {
-        let proof = match args.mode.as_str() {
-            "groth16" => client.prove(&pk, &stdin).groth16().run().expect("Groth16 proof generation failed"),
-            "plonk" => client.prove(&pk, &stdin).plonk().run().expect("Plonk proof generation failed"),
-            _ => panic!("Invalid proof mode"),
-        };
-        proof.save(&proof_path).expect("Failed to save proof");
-    }
+
+    // Request a proof with reserved prover network capacity and wait for it to be fulfilled
+
+    let proof_path = format!("../binaries/DOB-Attestaion_{}_proof.bin", mode);
+    let json_path = format!("../json/DOB-Attestaion_{}_proof.json", mode);
+
+    let proof =  client
+            .prove(&pk, &stdin)
+            .groth16()
+            .skip_simulation(false)
+            .run_async()
+            .await
+            .expect("Groth16 proof generation failed");
+    
+    
+    proof.save(&proof_path).expect("Failed to save proof");
 
     let proof = SP1ProofWithPublicValues::load(&proof_path).expect("Failed to load proof");
     let fixture = ProofData {
         proof: hex::encode(proof.bytes()),
         public_inputs: hex::encode(proof.public_values),
         vkey_hash: vk.bytes32(),
-        mode: args.mode.clone(),
+        mode: mode.clone(),
     };
 
-    fs::write(&json_path, serde_json::to_string(&fixture).expect("Failed to serialize proof"))
-        .expect("Failed to write JSON proof");
-    println!("Successfully generated JSON proof for the program!");
+    fs::write(
+        &json_path,
+        serde_json::to_string(&fixture).expect("Failed to serialize proof"),
+    )
+    .expect("Failed to write JSON proof");
+
+    Ok(HttpResponse::Ok().json(fixture))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    dotenv().ok();  // Load .env file
+    println!("Server starting at http://localhost:8080");
+
+    HttpServer::new(|| {
+        let cors = Cors::permissive();
+
+        App::new()
+            .wrap(cors)
+            .route("/save-input", web::post().to(save_input))
+            .route("/generate-proof", web::post().to(generate_proof))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
 }
