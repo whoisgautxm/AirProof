@@ -1,3 +1,4 @@
+
 // src/structs.rs
 use ethers_core::types::{Address, H256};
 use serde::{Deserialize, Serialize};

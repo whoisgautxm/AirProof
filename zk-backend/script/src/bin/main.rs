@@ -1,14 +1,17 @@
 mod structs;
+mod server;
+use actix_web::{Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use sp1_sdk::{include_elf, utils, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
+use sp1_sdk::{include_elf, utils, HashableKey, ProverClient, SP1Stdin};
 use ethers_core::types::{H160, Signature, H256};
 use ethers_core::abi::Token;
 use ethers_core::types::transaction::eip712::EIP712Domain;
 use ethers_core::utils::keccak256;
 use std::fs;
 use structs::{Attest, InputData};
-use std::path::Path;
+
+// Reuse existing constants and structs
 
 /// ELF file for the Succinct RISC-V zkVM.
 pub const ADDRESS_ELF: &[u8] = include_elf!("fibonacci-program");
@@ -32,9 +35,10 @@ struct Cli {
     mode: String,
 }
 
-fn parse_input_data(file_path: &str) -> InputData {
-    let json_str = fs::read_to_string(file_path).expect("Failed to read input file");
-    serde_json::from_str(&json_str).expect("Failed to parse JSON input")
+fn parse_input_data(file_path: &str) -> Result<InputData, Box<dyn std::error::Error>> {
+    let json_str = fs::read_to_string(file_path)?;
+    let input_data = serde_json::from_str(&json_str)?;
+    Ok(input_data)
 }
 
 pub fn domain_separator(domain: &EIP712Domain, type_hash: H256) -> H256 {
@@ -84,18 +88,11 @@ fn parse_signature(input_data: &InputData) -> Signature {
     }
 }
 
-fn main() {
-    // Create necessary directories if they don't exist
-    let proof_dir = Path::new("proofs");
-    if !proof_dir.exists() {
-        fs::create_dir_all(proof_dir).expect("Failed to create proofs directory");
-    }
-
+pub async fn generate_proof(input_path: &str) -> Result<ProofData, Box<dyn std::error::Error>> {
     utils::setup_logger();
-    let args = Cli::parse();   
-    let input_data = parse_input_data("/home/gautam/Desktop/AirProof/zk-backend/script/src/bin/input.json");
-
-    let signer_address: H160 = input_data.signer.parse().unwrap();
+    
+    let input_data = parse_input_data(input_path)?;
+    let signer_address: H160 = input_data.signer.parse()?;
     let message = build_message(&input_data);
     let domain_separator = create_domain_separator(&input_data);
     let signature = parse_signature(&input_data);
@@ -103,34 +100,23 @@ fn main() {
     let mut stdin = SP1Stdin::new();
     stdin.write(&signer_address);
     stdin.write(&signature);
-    stdin.write(&(THRESHOLD_AGE));  // threshold age in seconds
+    stdin.write(&(THRESHOLD_AGE));
     stdin.write(&(chrono::Utc::now().timestamp() as u64));
     stdin.write(&message);
     stdin.write(&domain_separator);
 
     let client = ProverClient::from_env();
     let (pk, vk) = client.setup(ADDRESS_ELF);
-    let proof_path = format!("../binaries/DOB-Attestaion_{}_proof.bin", args.mode);
-    let json_path = format!("../json/DOB-Attestaion_{}_proof.json", args.mode);
+    
+    // Generate PLONK proof by default
+    let proof = client.prove(&pk, &stdin)
+        .plonk()
+        .run()?;
 
-    if args.prove {
-        let proof = match args.mode.as_str() {
-            "groth16" => client.prove(&pk, &stdin).groth16().run().expect("Groth16 proof generation failed"),
-            "plonk" => client.prove(&pk, &stdin).plonk().run().expect("Plonk proof generation failed"),
-            _ => panic!("Invalid proof mode"),
-        };
-        proof.save(&proof_path).expect("Failed to save proof");
-    }
-
-    let proof = SP1ProofWithPublicValues::load(&proof_path).expect("Failed to load proof");
-    let fixture = ProofData {
+    Ok(ProofData {
         proof: hex::encode(proof.bytes()),
         public_inputs: hex::encode(proof.public_values),
         vkey_hash: vk.bytes32(),
-        mode: args.mode.clone(),
-    };
-
-    fs::write(&json_path, serde_json::to_string(&fixture).expect("Failed to serialize proof"))
-        .expect("Failed to write JSON proof");
-    println!("Successfully generated JSON proof for the program!");
+        mode: "plonk".to_string(),
+    })
 }
