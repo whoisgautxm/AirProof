@@ -2062,28 +2062,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fibonacci-script"
-version = "0.1.0"
-dependencies = [
- "actix-cors",
- "actix-web",
- "alloy-sol-types 0.7.7",
- "anyhow",
- "chrono",
- "clap",
- "dotenv",
- "ethers-core",
- "fibonacci-lib",
- "hex",
- "serde",
- "serde_json",
- "sp1-build 4.0.0",
- "sp1-helper",
- "sp1-sdk",
- "tracing",
-]
-
-[[package]]
 name = "fixed-hash"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4660,6 +4638,28 @@ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "digest 0.10.7",
  "rand_core",
+]
+
+[[package]]
+name = "signature-script"
+version = "0.1.0"
+dependencies = [
+ "actix-cors",
+ "actix-web",
+ "alloy-sol-types 0.7.7",
+ "anyhow",
+ "chrono",
+ "clap",
+ "dotenv",
+ "ethers-core",
+ "fibonacci-lib",
+ "hex",
+ "serde",
+ "serde_json",
+ "sp1-build 4.0.0",
+ "sp1-helper",
+ "sp1-sdk",
+ "tracing",
 ]
 
 [[package]]

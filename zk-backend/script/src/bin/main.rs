@@ -11,10 +11,9 @@ use serde_json::Value;
 use sp1_sdk::{
     include_elf, utils, ProverClient, SP1Stdin,SP1ProofWithPublicValues,HashableKey
 };
-use sp1_sdk::{network::FulfillmentStrategy, Prover};
+use sp1_sdk::Prover;
 use std::fs;
 use std::path::Path;
-use std::time::Duration;
 use structs::{Attest, InputData};
 use dotenv::dotenv;
 
@@ -124,14 +123,10 @@ fn parse_signature(input_data: &InputData) -> Signature {
 }
 
 async fn generate_proof(mode: String) -> Result<HttpResponse> {
-    // Create necessary directories if they don't exist
-    let proof_dir = Path::new("proofs");
-    if !proof_dir.exists() {
-        fs::create_dir_all(proof_dir).expect("Failed to create proofs directory");
-    }
+
 
     utils::setup_logger();
-    let input_data = parse_input_data("src/bin/input.json");
+    let input_data = parse_input_data("/Users/shivanshgupta/Desktop/AirProof/AirProof/zk-backend/script/src/bin/input.json");
 
     let signer_address: H160 = input_data.signer.parse().unwrap();
     let message = build_message(&input_data);
@@ -158,6 +153,7 @@ async fn generate_proof(mode: String) -> Result<HttpResponse> {
 
     let proof_path = format!("../binaries/DOB-Attestaion_{}_proof.bin", mode);
     let json_path = format!("../json/DOB-Attestaion_{}_proof.json", mode);
+    let mode = "groth16";
 
     let proof =  client
             .prove(&pk, &stdin)
@@ -167,7 +163,8 @@ async fn generate_proof(mode: String) -> Result<HttpResponse> {
             .await
             .expect("Groth16 proof generation failed");
     
-    
+    client.verify(&proof, &vk).expect("verification failed");
+    println!("Successfully verified proof!");
     proof.save(&proof_path).expect("Failed to save proof");
 
     let proof = SP1ProofWithPublicValues::load(&proof_path).expect("Failed to load proof");
@@ -175,7 +172,7 @@ async fn generate_proof(mode: String) -> Result<HttpResponse> {
         proof: hex::encode(proof.bytes()),
         public_inputs: hex::encode(proof.public_values),
         vkey_hash: vk.bytes32(),
-        mode: mode.clone(),
+        mode: mode.to_string(),
     };
 
     fs::write(

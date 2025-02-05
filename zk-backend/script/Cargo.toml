@@ -1,6 +1,6 @@
 [package]
 version = "0.1.0"
-name = "fibonacci-script"
+name = "signature-script"
 edition = "2021"
 
 [[bin]]
