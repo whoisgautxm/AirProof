@@ -11,12 +11,12 @@ use serde_json::Value;
 use sp1_sdk::{
     include_elf, utils, ProverClient, SP1Stdin,SP1ProofWithPublicValues,HashableKey
 };
-use sp1_sdk::{network::FulfillmentStrategy, Prover};
+use sp1_sdk::Prover;
 use std::fs;
 use std::path::Path;
-use std::time::Duration;
 use structs::{Attest, InputData};
 use dotenv::dotenv;
+use std::env;  
 
 /// ELF file for the Succinct RISC-V zkVM.
 pub const ADDRESS_ELF: &[u8] = include_elf!("fibonacci-program");
@@ -123,7 +123,7 @@ fn parse_signature(input_data: &InputData) -> Signature {
     }
 }
 
-async fn generate_proof(mode: String) -> Result<HttpResponse> {
+async fn generate_proof(_mode: String) -> Result<HttpResponse> {
     // Create necessary directories if they don't exist
     let proof_dir = Path::new("proofs");
     if !proof_dir.exists() {
@@ -148,13 +148,15 @@ async fn generate_proof(mode: String) -> Result<HttpResponse> {
 
     let client = ProverClient::builder()
         .network()
-        .private_key("0xfe513d8088442654ae6db6a23998f698100e34d43c9d6c105743590de0ae1e88")
-        .rpc_url("https://rpc.production.succinct.xyz")
+        .private_key(&env::var("NETWORK_PRIVATE_KEY").expect("NETWORK_PRIVATE_KEY must be set in .env"))
+        .rpc_url(&env::var("RPC_URL").expect("RPC_URL must be set in .env"))
         .build();
     let (pk, vk) = client.setup(ADDRESS_ELF);
 
 
     // Request a proof with reserved prover network capacity and wait for it to be fulfilled
+
+    let mode = "groth16";
 
     let proof_path = format!("../binaries/DOB-Attestaion_{}_proof.bin", mode);
     let json_path = format!("../json/DOB-Attestaion_{}_proof.json", mode);
@@ -170,12 +172,13 @@ async fn generate_proof(mode: String) -> Result<HttpResponse> {
     
     proof.save(&proof_path).expect("Failed to save proof");
 
+
     let proof = SP1ProofWithPublicValues::load(&proof_path).expect("Failed to load proof");
     let fixture = ProofData {
         proof: hex::encode(proof.bytes()),
         public_inputs: hex::encode(proof.public_values),
         vkey_hash: vk.bytes32(),
-        mode: mode.clone(),
+        mode: mode.to_string(),
     };
 
     fs::write(
