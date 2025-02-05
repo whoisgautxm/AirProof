@@ -6,7 +6,7 @@ sp1_zkvm::entrypoint!(main);
 use alloy_sol_types::SolType;
 use fibonacci_lib::PublicValuesStruct;
 use ethers_core::types::{RecoveryMessage, Signature, H160, H256, Address};
-use ethers_core::abi::{decode, ParamType, Token};
+use ethers_core::abi::Token;
 use ethers_core::utils::keccak256;
 use serde::{Deserialize, Serialize};
 
@@ -21,11 +21,6 @@ struct Attest {
     ref_uid: H256,
     data: Vec<u8>,
     salt: H256,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct DateOfBirth {
-    unix_timestamp: u128,
 }
 
 fn hash_message(domain_separator: &H256, message: &Attest) -> H256 {
@@ -49,12 +44,7 @@ fn hash_message(domain_separator: &H256, message: &Attest) -> H256 {
     keccak256(&[0x19, 0x01].iter().chain(domain_separator.as_bytes()).chain(&keccak256(&encoded_message)).cloned().collect::<Vec<u8>>()).into()
 }
 
-pub fn decode_date_of_birth(data: &Vec<u8>) -> u64 {
-    let param_types = vec![ParamType::Uint(256)];
-    let decoded: Vec<ethers_core::abi::Token> =decode(&param_types, data).expect("Failed to decode data");  // Decode the data
-    let dob = decoded[0].clone().into_uint().expect("Failed to parse dob");
-    return dob.as_u64();
-}
+
 
 pub fn main() {
     // Read inputs from the zkVM environment.
@@ -68,7 +58,7 @@ pub fn main() {
     let calculated_digest = hash_message(&domain_separator, &message);
     let recovered_address = signature.recover(RecoveryMessage::Hash(calculated_digest)).expect("Signature recovery failed");
 
-    let age_in_seconds = current_timestamp - decode_date_of_birth(&message.data);
+
     let signer_address_bytes: [u8; 20] = signer_address.into();
     let recipient_address_bytes: [u8; 20] = message.recipient.into();
     let domain_separator_bytes: [u8; 32] = domain_separator.into();
@@ -76,8 +66,6 @@ pub fn main() {
 
     if signer_address != recovered_address {
         panic!("Invalid signature");
-    } else if age_in_seconds < threshold_age {
-        panic!("Age is below threshold");
     } else {
         let public_values = PublicValuesStruct {
             signer_address: signer_address_bytes.into(),
