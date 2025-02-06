@@ -2,21 +2,19 @@ mod structs;
 use actix_cors::Cors;
 use actix_web::{web, App, HttpResponse, HttpServer, Result};
 use clap::Parser;
+use dotenv::dotenv;
 use ethers_core::abi::Token;
 use ethers_core::types::transaction::eip712::EIP712Domain;
 use ethers_core::types::{Signature, H160, H256};
 use ethers_core::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sp1_sdk::{
-    include_elf, utils, ProverClient, SP1Stdin,SP1ProofWithPublicValues,HashableKey
-};
 use sp1_sdk::Prover;
+use sp1_sdk::{include_elf, utils, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
+use std::env;
 use std::fs;
 use std::path::Path;
 use structs::{Attest, InputData};
-use dotenv::dotenv;
-use std::env;  
 
 /// ELF file for the Succinct RISC-V zkVM.
 pub const ADDRESS_ELF: &[u8] = include_elf!("fibonacci-program");
@@ -103,7 +101,7 @@ fn create_domain_separator(input_data: &InputData) -> H256 {
 
 fn build_message(input_data: &InputData) -> Attest {
     Attest {
-        version: input_data.sig.message.version.clone(),
+        version: input_data.sig.message.version,
         schema: input_data.sig.message.schema.parse().unwrap(),
         recipient: input_data.sig.message.recipient.parse().unwrap(),
         time: input_data.sig.message.time.parse().unwrap(),
@@ -139,20 +137,28 @@ async fn generate_proof(_mode: String) -> Result<HttpResponse> {
     let signature = parse_signature(&input_data);
 
     let mut stdin = SP1Stdin::new();
+
+    // First decode the message.data into our expected structure
+    let personal_data = decode_personal_data(&message.data);
+
+    // Write all the required data to stdin in the correct order
     stdin.write(&signer_address);
     stdin.write(&signature);
-    stdin.write(&(THRESHOLD_AGE));
-    stdin.write(&(chrono::Utc::now().timestamp() as u64));
     stdin.write(&message);
+    stdin.write(&personal_data.first_name);
+    stdin.write(&personal_data.last_name);
+    stdin.write(&personal_data.date_of_birth);
+    stdin.write(&personal_data.adhaar_number);
     stdin.write(&domain_separator);
 
     let client = ProverClient::builder()
         .network()
-        .private_key(&env::var("NETWORK_PRIVATE_KEY").expect("NETWORK_PRIVATE_KEY must be set in .env"))
+        .private_key(
+            &env::var("NETWORK_PRIVATE_KEY").expect("NETWORK_PRIVATE_KEY must be set in .env"),
+        )
         .rpc_url(&env::var("RPC_URL").expect("RPC_URL must be set in .env"))
         .build();
     let (pk, vk) = client.setup(ADDRESS_ELF);
-
 
     // Request a proof with reserved prover network capacity and wait for it to be fulfilled
 
@@ -161,17 +167,15 @@ async fn generate_proof(_mode: String) -> Result<HttpResponse> {
     let proof_path = format!("../binaries/DOB-Attestaion_{}_proof.bin", mode);
     let json_path = format!("../json/DOB-Attestaion_{}_proof.json", mode);
 
-    let proof =  client
-            .prove(&pk, &stdin)
-            .groth16()
-            .skip_simulation(false)
-            .run_async()
-            .await
-            .expect("Groth16 proof generation failed");
-    
-    
-    proof.save(&proof_path).expect("Failed to save proof");
+    let proof = client
+        .prove(&pk, &stdin)
+        .groth16()
+        .skip_simulation(false)
+        .run_async()
+        .await
+        .expect("Groth16 proof generation failed");
 
+    proof.save(&proof_path).expect("Failed to save proof");
 
     let proof = SP1ProofWithPublicValues::load(&proof_path).expect("Failed to load proof");
     let fixture = ProofData {
@@ -190,9 +194,38 @@ async fn generate_proof(_mode: String) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(fixture))
 }
 
+// Add this helper function to decode the personal data
+fn decode_personal_data(data: &[u8]) -> PersonalData {
+    let tokens = ethers_core::abi::decode(
+        &[
+            ethers_core::abi::ParamType::String,   // firstName
+            ethers_core::abi::ParamType::String,   // lastName
+            ethers_core::abi::ParamType::Uint(64), // D_O_B
+            ethers_core::abi::ParamType::Uint(64), // AdhaarNumber
+        ],
+        data,
+    )
+    .expect("Failed to decode personal data");
+
+    PersonalData {
+        first_name: tokens[0].clone().into_string().unwrap(),
+        last_name: tokens[1].clone().into_string().unwrap(),
+        date_of_birth: tokens[2].clone().into_uint().unwrap().as_u64(),
+        adhaar_number: tokens[3].clone().into_uint().unwrap().as_u64(),
+    }
+}
+
+#[derive(Debug)]
+struct PersonalData {
+    first_name: String,
+    last_name: String,
+    date_of_birth: u64,
+    adhaar_number: u64,
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    dotenv().ok();  // Load .env file
+    dotenv().ok(); // Load .env file
     println!("Server starting at http://localhost:8080");
 
     HttpServer::new(|| {

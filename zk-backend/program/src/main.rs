@@ -4,10 +4,10 @@
 sp1_zkvm::entrypoint!(main);
 
 use alloy_sol_types::SolType;
-use fibonacci_lib::PublicValuesStruct;
-use ethers_core::types::{RecoveryMessage, Signature, H160, H256, Address};
 use ethers_core::abi::Token;
+use ethers_core::types::{Address, RecoveryMessage, Signature, H160, H256};
 use ethers_core::utils::keccak256;
+use fibonacci_lib::PublicValuesStruct;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,39 +41,48 @@ fn hash_message(domain_separator: &H256, message: &Attest) -> H256 {
         Token::FixedBytes(message.salt.as_bytes().to_vec()),
     ]);
 
-    keccak256(&[0x19, 0x01].iter().chain(domain_separator.as_bytes()).chain(&keccak256(&encoded_message)).cloned().collect::<Vec<u8>>()).into()
+    keccak256(
+        &[0x19, 0x01]
+            .iter()
+            .chain(domain_separator.as_bytes())
+            .chain(&keccak256(&encoded_message))
+            .cloned()
+            .collect::<Vec<u8>>(),
+    )
+    .into()
 }
-
-
 
 pub fn main() {
     // Read inputs from the zkVM environment.
     let signer_address: H160 = sp1_zkvm::io::read();
     let signature: Signature = sp1_zkvm::io::read();
-    let threshold_age: u64 = sp1_zkvm::io::read();
-    let current_timestamp: u64 = sp1_zkvm::io::read();
     let message: Attest = sp1_zkvm::io::read();
+    let first_name: String = sp1_zkvm::io::read();
+    let last_name: String = sp1_zkvm::io::read();
+    let date_of_birth: u64 = sp1_zkvm::io::read();
+    let adhaar_number: u64 = sp1_zkvm::io::read();
     let domain_separator: H256 = sp1_zkvm::io::read();
 
-    let calculated_digest = hash_message(&domain_separator, &message);
-    let recovered_address = signature.recover(RecoveryMessage::Hash(calculated_digest)).expect("Signature recovery failed");
 
+    let calculated_digest = hash_message(&domain_separator, &message);
+    let recovered_address = signature
+        .recover(RecoveryMessage::Hash(calculated_digest))
+        .expect("Signature recovery failed");
 
     let signer_address_bytes: [u8; 20] = signer_address.into();
     let recipient_address_bytes: [u8; 20] = message.recipient.into();
-    let domain_separator_bytes: [u8; 32] = domain_separator.into();
-
+   
 
     if signer_address != recovered_address {
         panic!("Invalid signature");
     } else {
         let public_values = PublicValuesStruct {
             signer_address: signer_address_bytes.into(),
-            threshold_age,
-            current_timestamp,
-            attest_time: message.time,
             receipent_address: recipient_address_bytes.into(),
-            domain_seperator: domain_separator_bytes.into(),
+            first_name,
+            last_name,
+            date_of_birth,
+            adhaar_number,
         };
         sp1_zkvm::io::commit_slice(&PublicValuesStruct::abi_encode(&public_values));
     }
