@@ -18,8 +18,6 @@ use structs::{Attest, InputData};
 
 /// ELF file for the Succinct RISC-V zkVM.
 pub const ADDRESS_ELF: &[u8] = include_elf!("fibonacci-program");
-const YEAR_IN_SECONDS: u64 = 365 * 24 * 60 * 60;
-const THRESHOLD_AGE: u64 = 18 * YEAR_IN_SECONDS;
 
 #[derive(Serialize, Deserialize)]
 struct ProofData {
