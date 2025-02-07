@@ -27,6 +27,12 @@ struct ProofData {
     public_inputs: String, // hex string
     vkey_hash: String,     // vk.bytes32()
     mode: String,
+    signer_address: String,
+    recipient_address: String,
+    first_name: String,
+    last_name: String,
+    date_of_birth: u64,
+    adhaar_number: u64,
 }
 
 #[derive(Parser)]
@@ -177,12 +183,20 @@ async fn generate_proof(_mode: String) -> Result<HttpResponse> {
 
     proof.save(&proof_path).expect("Failed to save proof");
 
+    
+
     let proof = SP1ProofWithPublicValues::load(&proof_path).expect("Failed to load proof");
     let fixture = ProofData {
         proof: hex::encode(proof.bytes()),
         public_inputs: hex::encode(proof.public_values),
         vkey_hash: vk.bytes32(),
         mode: mode.to_string(),
+        signer_address: "0x4F815E2b9619970909A071f65cb32b128aE5fc86".to_string(),
+        recipient_address: "0x0000000000000000000000000000000000000000".to_string(),
+        first_name: "Shivansh".to_string(),
+        last_name: "Gupta".to_string(),
+        date_of_birth: 1738842536, 
+        adhaar_number: 1234567890
     };
 
     fs::write(
