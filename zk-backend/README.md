@@ -1,7 +1,7 @@
 ## Github Links 
-ZK-Backend - https://github.com/whoisgautxm/AirProof
-Contracts - https://github.com/Shivannsh/airproof-fhe
-Walkthrough Video - https://youtu.be/pxyek5mhxMA
+- ZK-Backend - https://github.com/whoisgautxm/AirProof
+- Contracts - https://github.com/Shivannsh/airproof-fhe
+- Walkthrough Video - https://youtu.be/pxyek5mhxMA
 
 # SP1 Project Template
 
