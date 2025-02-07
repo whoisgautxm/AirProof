@@ -1,3 +1,8 @@
+## Github Links 
+ ZK-Backend - https://github.com/whoisgautxm/AirProof
+Contracts - https://github.com/Shivannsh/airproof-fhe
+Walkthrough Video - https://youtu.be/pxyek5mhxMA
+
 # SP1 Project Template
 
 This is a template for creating an end-to-end [SP1](https://github.com/succinctlabs/sp1) project
